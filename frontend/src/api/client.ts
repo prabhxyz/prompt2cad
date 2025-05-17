@@ -11,11 +11,13 @@ const API_URL = import.meta.env.VITE_API_URL || ''
 export async function uploadImages(images: ScanImage[]): Promise<ReconstructionResponse> {
   const formData = new FormData()
   
-  // Convert data URLs to Blobs
-  images.forEach((image, index) => {
-    const blob = dataURLtoBlob(image.dataUrl)
-    formData.append('images', blob, `image-${index}.jpg`)
-  })
+  // Only use the first image since we now process just one image
+  if (images.length > 0) {
+    const blob = dataURLtoBlob(images[0].dataUrl)
+    formData.append('image', blob, 'image.jpg')
+  } else {
+    throw new Error('No images to upload')
+  }
 
   const response = await fetch(`${API_URL}/api/upload`, {
     method: 'POST',
@@ -34,30 +36,30 @@ export function subscribeToReconstructionProgress(
   onProgress: (event: ReconstructionProgressEvent) => void,
   onError: (error: Error) => void
 ): () => void {
-  const eventSource = new EventSource(`${API_URL}/api/reconstruct/${jobId}`)
-  
-  eventSource.onmessage = (event) => {
+  // Setup polling instead of EventSource
+  const intervalId = setInterval(async () => {
     try {
-      const data = JSON.parse(event.data) as ReconstructionProgressEvent
+      const response = await fetch(`${API_URL}/api/status/${jobId}`)
+      
+      if (!response.ok) {
+        throw new Error(`Failed to get status: ${response.statusText}`)
+      }
+      
+      const data = await response.json() as ReconstructionProgressEvent
       onProgress(data)
       
       if (data.status === 'completed' || data.status === 'failed') {
-        eventSource.close()
+        clearInterval(intervalId)
       }
     } catch (error) {
       onError(error instanceof Error ? error : new Error(String(error)))
-      eventSource.close()
+      clearInterval(intervalId)
     }
-  }
-  
-  eventSource.onerror = (error) => {
-    onError(new Error('EventSource connection error'))
-    eventSource.close()
-  }
+  }, 1000) // Poll every second
   
   // Return a cleanup function
   return () => {
-    eventSource.close()
+    clearInterval(intervalId)
   }
 }
 

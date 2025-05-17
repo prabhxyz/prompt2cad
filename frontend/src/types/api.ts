@@ -13,6 +13,11 @@ export interface ReconstructionProgressEvent {
   message: string
   meshUrl?: string
   error?: string
+  dimensions?: {
+    width: number
+    height: number
+    depth: number
+  }
 }
 
 export interface CADGenerationRequest {

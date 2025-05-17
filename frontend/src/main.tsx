@@ -114,7 +114,7 @@ ReactDOM.createRoot(rootElement || document.createElement('div')).render(
         <BrowserRouter>
           <App />
           <Toaster 
-            position="bottom-center"
+            position="bottom-right"
             toastOptions={{
               style: {
                 background: '#363636',

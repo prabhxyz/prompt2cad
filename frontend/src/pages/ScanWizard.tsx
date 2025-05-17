@@ -82,9 +82,20 @@ const ScanWizard = () => {
         (event) => {
           setProcessingProgress(event.progress)
           
-          if (event.status === 'completed' && event.meshUrl) {
+          // Store dimensions when available
+          if (event.dimensions) {
+            setObjectDimensions({
+              width: event.dimensions.width,
+              height: event.dimensions.height,
+              depth: event.dimensions.depth,
+              confidence: 0.9 // High confidence since it's from AI
+            });
+          }
+          
+          if (event.status === 'completed') {
             setIsProcessing(false)
-            setMeshUrl(event.meshUrl)
+            // Set the model URL with the right path to fetch it
+            setMeshUrl(`${import.meta.env.VITE_API_URL || ''}/api/models/${jobId}`);
             toast.success('Scan complete!')
             // Navigate to design studio
             navigate(`/design/${jobId}`)
@@ -101,7 +112,7 @@ const ScanWizard = () => {
       
       return unsubscribe
     }
-  }, [jobId, isProcessing, navigate, setIsProcessing, setMeshUrl, setProcessingProgress])
+  }, [jobId, isProcessing, navigate, setIsProcessing, setMeshUrl, setProcessingProgress, setObjectDimensions])
   
   const initCamera = async () => {
     if (!videoRef.current) return
@@ -185,9 +196,9 @@ const ScanWizard = () => {
       toast.error('Camera not properly initialized')
       
       // Try to reinitialize camera
-      if (!stream || !videoRef.current.srcObject) {
+      if (!stream || (videoRef.current && !videoRef.current.srcObject)) {
         reinitializeCamera()
-        toast.info('Trying to reinitialize camera...')
+        toast.success('Trying to reinitialize camera...')
         return
       }
       return
@@ -207,12 +218,12 @@ const ScanWizard = () => {
       }
       
       const photoDataUrl = await takePhoto(videoRef.current, canvasRef.current)
-      addImage(photoDataUrl)
-      toast.success(`Photo ${images.length + 1} captured!`)
       
-      if (images.length >= 5) {
-        toast.success('You have enough photos! Continue to the next step or take more for better quality.')
-      }
+      // Clear existing images and add the new one
+      clearImages()
+      addImage(photoDataUrl)
+      
+      toast.success('Photo captured!')
     } catch (error) {
       console.error('Photo capture error:', error)
       toast.error(`Photo capture error: ${error instanceof Error ? error.message : String(error)}`)
@@ -227,37 +238,36 @@ const ScanWizard = () => {
     const files = event.target.files
     if (!files || files.length === 0) return
     
-    // Process each file
-    Array.from(files).forEach(file => {
-      if (!file.type.startsWith('image/')) {
-        toast.error(`File ${file.name} is not an image`)
-        return
-      }
-      
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          const dataUrl = e.target.result as string
-          addImage(dataUrl)
-          toast.success(`Image "${file.name}" loaded`)
-        }
-      }
-      reader.onerror = () => {
-        toast.error(`Failed to read file ${file.name}`)
-      }
-      reader.readAsDataURL(file)
-    })
+    // Just use the first file
+    const file = files[0]
     
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+    if (!file.type.startsWith('image/')) {
+      toast.error(`File ${file.name} is not an image`)
+      return
     }
+    
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        const dataUrl = e.target.result as string
+        
+        // Clear existing images and add the new one
+        clearImages()
+        addImage(dataUrl)
+        
+        toast.success(`Image "${file.name}" loaded`)
+      }
+    }
+    reader.onerror = () => {
+      toast.error(`Failed to read file ${file.name}`)
+    }
+    reader.readAsDataURL(file)
   }
   
   const handleNext = () => {
     // Validate that we can proceed
-    if (currentStep === 2 && images.length < 3) {
-      return toast.error('Please take at least 3 photos')
+    if (currentStep === 2 && images.length === 0) {
+      return toast.error('Please take at least one photo')
     }
     
     if (currentStep === 3 && !objectDimensions) {
@@ -311,7 +321,7 @@ const ScanWizard = () => {
   const estimateObjectDimensions = async () => {
     if (images.length === 0) {
       setObjectDimensions(getDefaultDimensions())
-      toast.warning('No images available, using default dimensions')
+      toast.error('No images available, using default dimensions')
       return
     }
     
@@ -330,18 +340,16 @@ const ScanWizard = () => {
         })
       ) as HTMLImageElement[]
       
-      // If we have video element and it's active, add it too
-      if (videoRef.current && videoRef.current.srcObject && acquisitionMethod === 'camera') {
-        imageElements.push(videoRef.current)
-      }
+      // Don't add video element - just use the captured image
+      // which should already be in the images array
       
-      // Run the multi-view analysis
+      // Run the analysis
       const result = await estimateDimensions(imageElements)
       
       setObjectDimensions(result.dimensions)
       setAnalysisData(result.analysisData)
       
-      toast.success(`Object dimensions estimated with ${Math.round(result.dimensions.confidence * 100)}% confidence`)
+      toast.success(`Object dimensions estimated with ${Math.round((result.dimensions.confidence || 0.5) * 100)}% confidence`)
     } catch (error) {
       console.error('Dimension estimation error:', error)
       setObjectDimensions(getDefaultDimensions())
@@ -402,9 +410,12 @@ const ScanWizard = () => {
         return (
           <div>
             <p className="mb-4 text-center">
-              Take 6-8 photos as you rotate around the object. 
+              Take a single clear photo of the object from the front.
               <br/>
-              Captured: <strong>{images.length}</strong>
+              {images.length > 0 ? 
+                <strong className="text-green-600">Image captured!</strong> : 
+                <span>No image captured yet</span>
+              }
             </p>
             <div className="camera-view mb-4">
               <video 
@@ -420,12 +431,10 @@ const ScanWizard = () => {
             </div>
             
             {images.length > 0 && (
-              <div className="grid grid-cols-4 gap-2 mb-4">
-                {images.slice(-4).map((image) => (
-                  <div key={image.id} className="aspect-[4/3] rounded overflow-hidden bg-gray-200">
-                    <img src={image.dataUrl} alt="Captured" className="w-full h-full object-cover" />
-                  </div>
-                ))}
+              <div className="flex justify-center mb-4">
+                <div className="aspect-[4/3] rounded overflow-hidden bg-gray-200 max-w-md">
+                  <img src={images[0].dataUrl} alt="Captured" className="w-full h-full object-cover" />
+                </div>
               </div>
             )}
             
@@ -441,12 +450,12 @@ const ScanWizard = () => {
                 onClick={capturePhoto}
               >
                 <CameraIcon className="h-5 w-5 mr-1 inline" />
-                Take Photo
+                {images.length > 0 ? 'Retake Photo' : 'Take Photo'}
               </button>
               <button 
                 className="btn btn-primary"
                 onClick={handleNext}
-                disabled={images.length < 3}
+                disabled={images.length === 0}
               >
                 Next
               </button>
@@ -458,19 +467,21 @@ const ScanWizard = () => {
         return (
           <div>
             <p className="mb-4 text-center">
-              Upload 6-8 photos of your object from different angles.
+              Upload a single clear photo of your object from the front.
               <br/>
-              Uploaded: <strong>{images.length}</strong>
+              {images.length > 0 ? 
+                <strong className="text-green-600">Image uploaded!</strong> : 
+                <span>No image uploaded yet</span>
+              }
             </p>
             
             <div className="mb-6 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
               <PhotoIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-              <p className="mb-4">Drag and drop images here, or click to select files</p>
+              <p className="mb-4">Drag and drop an image here, or click to select a file</p>
               <input 
                 ref={fileInputRef}
                 type="file" 
                 accept="image/*" 
-                multiple 
                 onChange={handleFileSelect}
                 className="hidden" 
                 id="file-upload" 
@@ -480,7 +491,7 @@ const ScanWizard = () => {
                 onClick={() => fileInputRef.current?.click()}
               >
                 <ArrowUpTrayIcon className="h-5 w-5 mr-1 inline" />
-                Select Images
+                Select Image
               </button>
             </div>
             
@@ -504,7 +515,7 @@ const ScanWizard = () => {
               <button 
                 className="btn btn-primary"
                 onClick={handleNext}
-                disabled={images.length < 3}
+                disabled={images.length === 0}
               >
                 Next
               </button>
@@ -617,7 +628,7 @@ const ScanWizard = () => {
                   </p>
                 </div>
               ) : (
-                <div className="flex flex-col items-center">
+                  <div className="flex flex-col items-center">
                   <div className="flex items-center mb-4">
                     <CheckCircleIcon className="h-8 w-8 text-green-500 mr-2" />
                     <h3 className="text-lg font-medium">Analysis Complete</h3>
@@ -626,29 +637,35 @@ const ScanWizard = () => {
                   {/* Dimension display */}
                   <div className="grid grid-cols-3 gap-4 w-full max-w-sm mb-6">
                     <div className="bg-white dark:bg-gray-700 p-3 rounded text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Width</p>
-                      <p className="font-bold">{objectDimensions.width} mm</p>
-                    </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Width</p>
+                        <p className="font-bold">{objectDimensions.width} mm</p>
+                      </div>
                     <div className="bg-white dark:bg-gray-700 p-3 rounded text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Height</p>
-                      <p className="font-bold">{objectDimensions.height} mm</p>
-                    </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Height</p>
+                        <p className="font-bold">{objectDimensions.height} mm</p>
+                      </div>
                     <div className="bg-white dark:bg-gray-700 p-3 rounded text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Depth</p>
-                      <p className="font-bold">{objectDimensions.depth} mm</p>
-                    </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Depth</p>
+                        <p className="font-bold">{objectDimensions.depth} mm</p>
+                      </div>
                   </div>
                   
                   {/* Confidence indicator */}
                   <div className="w-full max-w-sm mb-6">
                     <div className="flex justify-between mb-1">
                       <span className="text-sm">Confidence</span>
-                      <span className="text-sm font-medium">{Math.round(objectDimensions.confidence * 100)}%</span>
+                      <span className="text-sm font-medium">
+                        {objectDimensions && typeof objectDimensions.confidence !== 'undefined' 
+                          ? Math.round(objectDimensions.confidence * 100) 
+                          : 50}%
+                      </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
                       <div 
                         className="bg-green-500 h-2.5 rounded-full" 
-                        style={{ width: `${Math.round(objectDimensions.confidence * 100)}%` }}
+                        style={{ width: `${objectDimensions && typeof objectDimensions.confidence !== 'undefined'
+                          ? Math.round(objectDimensions.confidence * 100)
+                          : 50}%` }}
                       ></div>
                     </div>
                   </div>
@@ -750,9 +767,9 @@ const ScanWizard = () => {
                           <span>Depth: {objectDimensions.depth}mm</span>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
+              </div>
               )}
             </div>
             <div className="flex justify-between">
@@ -783,11 +800,11 @@ const ScanWizard = () => {
               <div className="mb-6">
                 <div className="relative">
                   <div className="overflow-hidden h-2 mb-2 text-xs flex rounded bg-gray-200 dark:bg-gray-700">
-                    <div 
-                      style={{ width: `${processingProgress}%` }}
-                      className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-brand-red"
-                    />
-                  </div>
+                  <div 
+                    style={{ width: `${processingProgress}%` }}
+                    className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-brand-red"
+                  />
+                </div>
                   
                   <div className="mt-2 flex justify-between text-xs text-gray-600 dark:text-gray-400">
                     <div className="text-center">

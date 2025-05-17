@@ -10,6 +10,7 @@ export interface ObjectDimensions {
   width: number  // in mm
   height: number // in mm
   depth: number  // in mm
+  confidence?: number // Confidence level of the estimate
 }
 
 export interface ScanState {

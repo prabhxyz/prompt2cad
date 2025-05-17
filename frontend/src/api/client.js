@@ -9,15 +9,31 @@ export const uploadImages = async (images) => {
   console.log(`Uploading ${images.length} images for processing`);
   
   try {
+    if (!Array.isArray(images)) {
+      throw new Error('Images must be provided as an array');
+    }
+    
+    if (images.length === 0) {
+      throw new Error('No images provided for upload');
+    }
+    
     // Create form data with images
     const formData = new FormData();
     
     // Convert dataURLs to Blobs and append to form
+    console.log('Processing images for upload...');
     for (let i = 0; i < images.length; i++) {
-      const blob = await dataURLtoBlob(images[i]);
-      formData.append('images', blob, `image_${i}.jpg`);
+      try {
+        console.log(`Processing image ${i + 1}/${images.length}`);
+        const blob = await dataURLtoBlob(images[i]);
+        formData.append('images', blob, `image_${i}.jpg`);
+      } catch (err) {
+        console.error(`Error processing image ${i + 1}:`, err);
+        throw new Error(`Failed to process image ${i + 1}: ${err.message}`);
+      }
     }
     
+    console.log('Sending images to server...');
     // Use our local Python API server for reconstruction
     const response = await fetch('http://localhost:5000/api/upload', {
       method: 'POST',
@@ -25,59 +41,95 @@ export const uploadImages = async (images) => {
     });
     
     if (!response.ok) {
-      throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('Server response error:', errorText);
+      throw new Error(`Server returned ${response.status}: ${response.statusText}. ${errorText}`);
     }
     
     const data = await response.json();
+    console.log('Upload response:', data);
+    
+    if (data.status === 'error') {
+      throw new Error(data.message || 'Unknown error during upload');
+    }
     
     return {
       status: 'success',
-      jobId: data.job_id || 'job_' + Math.random().toString(36).substring(2, 10),
-      message: `Successfully uploaded ${images.length} images`,
-      imageCount: images.length
+      jobId: data.job_id,
+      message: data.message,
+      imageCount: data.image_count
     };
   } catch (error) {
     console.error('Upload error:', error);
-    
-    // Fallback to mock job ID if API call fails
-    return {
-      status: 'success',
-      jobId: 'job_' + Math.random().toString(36).substring(2, 10),
-      message: `Successfully uploaded ${images.length} images (mock)`,
-      imageCount: images.length
-    };
+    throw error; // Re-throw to let the caller handle it
   }
 };
 
 /**
  * Helper function to convert a data URL to a Blob
- * @param {string} dataURL - The data URL to convert
+ * @param {string|Object} dataURL - The data URL to convert or an image object
  * @returns {Promise<Blob>} The blob object
  */
 const dataURLtoBlob = async (dataURL) => {
-  // Split the data URL to get the content type and base64 data
-  const parts = dataURL.split(',', 2);
-  const contentType = parts[0].match(/:(.*?);/)[1];
-  const base64 = parts[1];
-  
-  // Convert base64 to binary
-  const byteString = atob(base64);
-  
-  // Create a Uint8Array from the binary data
-  const arrayBuffer = new ArrayBuffer(byteString.length);
-  const uint8Array = new Uint8Array(arrayBuffer);
-  
-  for (let i = 0; i < byteString.length; i++) {
-    uint8Array[i] = byteString.charCodeAt(i);
+  try {
+    // Check if dataURL is already a Blob or File
+    if (dataURL instanceof Blob || dataURL instanceof File) {
+      return dataURL;
+    }
+    
+    // Check if dataURL is an object with src or dataUrl property
+    if (typeof dataURL === 'object' && (dataURL.src || dataURL.dataUrl || dataURL.dataURL)) {
+      dataURL = dataURL.src || dataURL.dataUrl || dataURL.dataURL;
+    }
+    
+    // Ensure dataURL is a string at this point
+    if (typeof dataURL !== 'string') {
+      throw new Error(`Invalid dataURL format: ${typeof dataURL}`);
+    }
+    
+    // Check if dataURL starts with data: prefix
+    if (!dataURL.startsWith('data:')) {
+      throw new Error("Invalid data URL format: missing 'data:' prefix");
+    }
+    
+    // Split the data URL to get the content type and base64 data
+    const parts = dataURL.split(',', 2);
+    if (parts.length !== 2) {
+      throw new Error("Invalid data URL format: could not split data and metadata");
+    }
+    
+    // Extract content type from the first part
+    const contentTypeMatch = parts[0].match(/:(.*?);/);
+    if (!contentTypeMatch) {
+      throw new Error("Invalid data URL format: could not extract content type");
+    }
+    
+    const contentType = contentTypeMatch[1];
+    const base64 = parts[1];
+    
+    // Convert base64 to binary
+    const byteString = atob(base64);
+    
+    // Create a Uint8Array from the binary data
+    const arrayBuffer = new ArrayBuffer(byteString.length);
+    const uint8Array = new Uint8Array(arrayBuffer);
+    
+    for (let i = 0; i < byteString.length; i++) {
+      uint8Array[i] = byteString.charCodeAt(i);
+    }
+    
+    return new Blob([arrayBuffer], {type: contentType});
+  } catch (error) {
+    console.error("Error converting data URL to Blob:", error);
+    throw new Error(`Failed to process image: ${error.message}`);
   }
-  
-  return new Blob([arrayBuffer], {type: contentType});
 };
 
 /**
  * Sets up a subscription to receive reconstruction progress updates
  * @param {string} jobId - ID of the reconstruction job
  * @param {Function} onProgressUpdate - Callback for progress updates
+ * @param {Function} onError - Callback for errors
  * @returns {Function} Unsubscribe function
  */
 export const subscribeToReconstructionProgress = (jobId, onProgressUpdate, onError) => {
@@ -93,81 +145,49 @@ export const subscribeToReconstructionProgress = (jobId, onProgressUpdate, onErr
       // Check progress with our local Python API
       const response = await fetch(`http://localhost:5000/api/status/${jobId}`);
       
-      // If API call fails, fall back to mocked progress
       if (!response.ok) {
-        mockProgress();
-        return;
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Error fetching status: ${response.status}`);
       }
       
       const data = await response.json();
       
-      // Parse status
-      const progress = data.progress || 0;
-      const status = data.status || 'processing';
-      
+      // Create update object matching expected format
       const update = {
         jobId,
-        progress: Math.round(progress * 100),
-        status,
-        message: `${status} - ${Math.round(progress * 100)}% complete`
+        progress: Math.round(data.progress * 100),
+        status: data.status,
+        message: data.message
       };
       
       // Add meshUrl when processing is completed
-      if (status === 'completed') {
+      if (data.status === 'completed') {
         update.meshUrl = `http://localhost:5000/api/models/${jobId}`;
+      }
+      
+      // Add error if present
+      if (data.error) {
+        update.error = data.error;
       }
       
       onProgressUpdate(update);
       
-      // Clear interval if processing is complete
-      if (status === 'completed' || status === 'failed') {
+      // Clear interval if processing is complete or failed
+      if (data.status === 'completed' || data.status === 'failed') {
         clearInterval(interval);
       }
       
     } catch (error) {
       console.error('Error checking progress:', error);
-      // Fall back to mock progress if API fails
-      mockProgress();
-    }
-  };
-  
-  // Fallback mock progress implementation
-  let mockProgressValue = 0;
-  const mockProgress = () => {
-    mockProgressValue += 10;
-    
-    let status = 'initializing';
-    if (mockProgressValue <= 30) {
-      status = 'preprocessing';
-    } else if (mockProgressValue <= 60) {
-      status = 'reconstructing';
-    } else if (mockProgressValue <= 90) {
-      status = 'finalizing';
-    } else {
-      status = 'completed';
-    }
-    
-    const update = {
-      jobId,
-      progress: mockProgressValue,
-      status,
-      message: `${status} - ${mockProgressValue}% complete`
-    };
-    
-    // Add meshUrl when processing is completed
-    if (status === 'completed') {
-      update.meshUrl = `/api/files/mesh/${jobId}`;
-    }
-    
-    onProgressUpdate(update);
-    
-    if (mockProgressValue >= 100) {
+      if (onError) {
+        onError(error);
+      }
       clearInterval(interval);
     }
   };
   
   // Start checking progress regularly
-  interval = setInterval(checkProgress, 3000);
+  interval = setInterval(checkProgress, 2000);
   
   // Initial check
   checkProgress();
@@ -181,11 +201,11 @@ export const subscribeToReconstructionProgress = (jobId, onProgressUpdate, onErr
 
 /**
  * Processes images to extract features, dimensions and create 3D model
- * @param {Object} request - Contains array of image URLs
+ * @param {Object} request - Contains jobId to process
  * @returns {Promise<Object>} Job information
  */
 export const processImages = async (request) => {
-  console.log(`Processing ${request.images.length} images`);
+  console.log(`Processing images for job: ${request.jobId}`);
   
   try {
     // Start processing with our local Python API
@@ -195,36 +215,30 @@ export const processImages = async (request) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        jobId: request.jobId,
-        options: {
-          quality: 'medium',
-          format: 'glb'
-        }
+        jobId: request.jobId
       })
     });
     
     if (!response.ok) {
-      throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+      const errorData = await response.json();
+      throw new Error(errorData.message || `Server returned ${response.status}`);
     }
     
     const data = await response.json();
     
+    if (data.status === 'error') {
+      throw new Error(data.message || 'Unknown error starting processing');
+    }
+    
     return {
       status: 'success',
-      jobId: data.job_id || 'job_' + Math.random().toString(36).substring(2, 10),
-      message: 'Image processing started',
-      estimatedTime: data.estimated_time || request.images.length * 2 // seconds
+      jobId: data.job_id,
+      message: data.message,
+      estimatedTime: data.estimated_time
     };
   } catch (error) {
     console.error('Processing error:', error);
-    
-    // Fallback to mock job ID if API call fails
-    return {
-      status: 'success',
-      jobId: 'job_' + Math.random().toString(36).substring(2, 10),
-      message: 'Image processing started (mock)',
-      estimatedTime: request.images.length * 2 // seconds
-    };
+    throw error; // Re-throw to let the caller handle it
   }
 };
 
