@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --brand-red: #ff3b3f;
+  }
+  
+  body {
+    @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  }
+  
+  /* Fix for Three.js canvas issues */
+  canvas {
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-colors;
+  }
+  
+  .btn-primary {
+    @apply bg-brand-red text-white hover:bg-red-700;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+  }
+}
+
+.camera-view {
+  @apply relative aspect-[4/3] w-full bg-black rounded-lg overflow-hidden;
+}
+
+.scan-step {
+  @apply flex flex-col items-center p-4 max-w-xl mx-auto;
+}
+
+.design-studio-container {
+  @apply grid grid-cols-1 md:grid-cols-3 gap-4 h-[calc(100vh-5rem)] p-4;
+  overflow: auto; /* Allow container to scroll */
+}
+
+.canvas-container {
+  @apply col-span-1 md:col-span-2 rounded-lg overflow-hidden bg-black relative;
+  height: 100%;
+  position: relative;
+  touch-action: none; /* Prevent touch scrolling in canvas area */
+}
+
+/* Ensure canvas takes full height of its container */
+.canvas-container canvas {
+  height: 100% !important;
+  width: 100% !important;
+  display: block !important;
+  outline: none;
+}
+
+/* Fix for Three.js event handlers */
+.canvas-container > div {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.prompt-panel {
+  @apply col-span-1 bg-white dark:bg-gray-800 rounded-lg p-4 shadow-lg flex flex-col;
+  max-height: calc(100vh - 5rem - 2rem); /* Adjust for header and padding */
+  overflow-y: auto;
+}
+
+.dimension-chip {
+  @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 mr-2 mb-2;
+} 

@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:8080
+      - VITE_ENABLE_CAMERA=true
+      - VITE_INSECURE_CAMERA=true
+      - VITE_USE_MOCK_DETECTION=true  # Always use mock detection to avoid TensorFlow issues
+      - VITE_ENABLE_TENSORFLOW=false  # Disable TensorFlow to avoid dependency issues
+    # Additional settings for camera access
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    privileged: true
+    depends_on:
+      - api
+
+  api:
+    build: ./api
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./api:/app
+      - /app/node_modules
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=development
+      - PORT=8080
+      - RECON_SERVICE_URL=http://recon:8000
+      - CAD_SERVICE_URL=http://cad:8001
+      - ENABLE_DETAILED_PROGRESS=true
+      - MAX_UPLOAD_SIZE=50mb
+      - USE_MOCK_IMPLEMENTATION=true  # Use mock implementation to avoid encoding issues
+    depends_on:
+      - recon
+      - cad
+
+  recon:
+    build:
+      context: ./services/recon
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/recon:/app
+      - ./data:/app/data
+    environment:
+      - ENABLE_CPU_OPTIMIZATION=true
+      - LOG_LEVEL=INFO
+      - DATA_DIR=/app/data
+      - ENABLE_AI_RECONSTRUCTION=true
+      - ENABLE_POINT_CLOUD_VISUALIZATION=true
+      - USE_MOCK_IMPLEMENTATION=true  # Use mock implementation
+
+  cad:
+    build:
+      context: ./services/cad
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./services/cad:/app
+      - ./data:/app/data
+    environment:
+      - LOG_LEVEL=INFO
+      - DATA_DIR=/app/data
+      - USE_MOCK_IMPLEMENTATION=true  # Use mock implementation
+      # HuggingFace API configuration
+      - HF_API_KEY=${HF_API_KEY:-}  # Pass from host environment or leave empty
+      - HF_MODEL_ID=google/gemma-2b  # Can be changed to any supported model
+      - ENABLE_DIMENSION_BASED_MODELING=true
+
+volumes:
+  data: 
