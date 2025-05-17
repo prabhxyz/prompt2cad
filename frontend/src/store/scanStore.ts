@@ -22,6 +22,7 @@ export interface ScanState {
   meshUrl: string | null
   cadUrl: string | null
   objectDimensions: ObjectDimensions | null
+  objectType: string | null // Type of detected object (box, bottle, etc.)
   
   // Actions
   setCurrentStep: (step: number) => void
@@ -35,6 +36,7 @@ export interface ScanState {
   setMeshUrl: (url: string | null) => void
   setCadUrl: (url: string | null) => void
   setObjectDimensions: (dimensions: ObjectDimensions | null) => void
+  setObjectType: (type: string | null) => void
   reset: () => void
 }
 
@@ -48,6 +50,7 @@ const initialState = {
   meshUrl: null,
   cadUrl: null,
   objectDimensions: null,
+  objectType: null,
 }
 
 export const useScanStore = create<ScanState>((set) => ({
@@ -82,6 +85,8 @@ export const useScanStore = create<ScanState>((set) => ({
   setCadUrl: (cadUrl) => set({ cadUrl }),
   
   setObjectDimensions: (objectDimensions) => set({ objectDimensions }),
+  
+  setObjectType: (objectType) => set({ objectType }),
   
   reset: () => set(initialState),
 })) 

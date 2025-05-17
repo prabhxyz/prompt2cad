@@ -1,79 +1,66 @@
-# Prompt2CAD
+# Prompt2CAD with Local 3D Reconstruction API
 
-Transform real-world objects into CAD-ready models with your camera.
+This application converts real-world objects into 3D CAD models by first reconstructing a 3D mesh from photos and then generating parametric CAD models.
 
-## Description
+## System Architecture
 
-Prompt2CAD is a web application that allows users to take photos of real-world objects, process them into 3D models, and generate CAD models based on dimensions and text prompts.
+The system consists of two main components:
 
-## Features
+1. **Frontend**: A React application that provides the user interface for taking photos, processing them, and designing CAD models.
+2. **Local 3D Reconstruction API**: A Python Flask server that processes images and creates 3D models.
 
-- Image capture and upload for 3D reconstruction
-- Object dimension detection
-- Natural language prompt-based CAD model generation
-- Real-time 3D model viewing
-- CAD model export (STL and JSCAD formats)
-
-## Architecture
-
-The application consists of multiple services:
-
-- **Frontend**: React-based web interface
-- **API Gateway**: Node.js-based API service
-- **Reconstruction Service**: 3D reconstruction from images
-- **CAD Generation Service**: Parametric model generation
-
-## Getting Started
+## Setup
 
 ### Prerequisites
 
-- Docker and Docker Compose
-- Node.js 16+ (for local development)
+- Node.js (v14 or higher)
+- Python (3.8 or higher)
+- pip (Python package manager)
 
-### Installation
+### Starting the 3D Reconstruction API
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/your-username/prompt2cad.git
-   cd prompt2cad
-   ```
-
-2. Start the application using Docker Compose:
-   ```
-   docker-compose up -d
+1. For Windows users:
+   ```bash
+   start_api.bat
    ```
 
-3. Access the web interface at `http://localhost`
+2. For macOS/Linux users:
+   ```bash
+   chmod +x start_api.sh
+   ./start_api.sh
+   ```
 
-### Development Setup
+This will:
+- Install the required Python dependencies
+- Start the API server on port 5000
 
-To run the services individually for development:
+### Starting the Frontend
 
-#### Frontend
+From another terminal:
 
-```
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-#### API Service
+This will start the frontend development server (typically on port 3000 or 5173).
 
-```
-cd api
-npm install
-npm run dev
-```
+## Using the Application
 
-## Configuration
-
-Environment variables can be configured in the `docker-compose.yml` file or in a `.env` file for local development.
+1. Open the application in your browser.
+2. Follow the scanning wizard to capture multiple images of your object.
+3. The processing page will show the reconstruction progress.
+4. Once complete, you'll be taken to the Design Studio where you can customize your 3D model.
 
 ## Troubleshooting
 
-- If the 3D viewer appears blank, check if your browser supports WebGL
-- For browser compatibility issues, check the console for diagnostic information
+- If the 3D model doesn't appear after processing, check the Python API server logs for errors.
+- Make sure your firewall allows connections to the local API server (port 5000).
+- If you get CORS errors, verify that the Flask server is properly configured with CORS enabled.
 
-## License
+## Technical Details
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+- The 3D reconstruction uses photogrammetry techniques to create 3D meshes from 2D images.
+- The API server creates a simple demo 3D model for testing purposes. In a production setup, it would use COLMAP or another photogrammetry tool to create accurate 3D reconstructions.
+- The frontend communicates with the API via HTTP requests for uploading images and checking processing status. 
